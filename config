@@ -1,4 +1,20 @@
-font-family="FiraCode Nerd Font Mono"
-theme="catppuccin-mocha"
-mouse-hide-while-typing=true
-macos-titlebar-style="hidden"
+font-family = FiraCode Nerd Font Mono
+font-size = 15
+theme = catppuccin-mocha
+mouse-hide-while-typing = true
+
+macos-titlebar-style = native
+window-width = 999999
+window-height = 999999
+
+auto-update = download
+auto-update-channel = tip
+
+quick-terminal-position = top
+quick-terminal-screen = main
+quick-terminal-autohide = false
+quick-terminal-animation-duration = 0.1
+keybind = global:ctrl+super+opt+b=toggle_quick_terminal
+
+custom-shader-animation = true
+custom-shader = ~/.config/ghostty/shaders/matrix.glsw

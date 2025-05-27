@@ -1,0 +1,231 @@
+const int ITERATIONS = 10;
+const float SPEED = 0.2;
+const float RUNE_MAX_ALPHA = 0.15;
+const float BLACK_BLEND_THRESHOLD = 0.3;
+
+const float STRIP_CHARS_MIN =  3.;
+const float STRIP_CHARS_MAX = 40.;
+const float STRIP_CHAR_HEIGHT = 0.020; 
+const float STRIP_CHAR_WIDTH = 0.02; 
+
+const float ZCELL_SIZE = 1.0 * (STRIP_CHAR_HEIGHT * STRIP_CHARS_MAX);
+const float XYCELL_SIZE = 12.0 * STRIP_CHAR_WIDTH;
+const int BLOCK_SIZE = 8;
+const int BLOCK_GAP = 0;
+
+const float PI = 3.14159265359;
+
+float hash(float v) {
+  return fract(sin(v)*43758.5453123);
+}
+
+float hash(vec2 v) {
+  return hash(dot(v, vec2(5.3983, 5.4427)));
+}
+
+vec2 hash2(vec2 v) {
+  return fract(sin(v)*43758.5453123);
+}
+
+vec4 hash4(vec2 v) {
+  vec4 p = vec4(v * mat4x2( 127.1, 311.7,
+         269.5, 183.3,
+         113.5, 271.9,
+         246.1, 124.6 ));
+  return fract(sin(p)*43758.5453123);
+}
+
+vec4 hash4(vec3 v) {
+  vec4 p = vec4(v * mat4x3( 127.1, 311.7, 74.7,
+         269.5, 183.3, 246.1,
+         113.5, 271.9, 124.6,
+         271.9, 269.5, 311.7 ) );
+  return fract(sin(p)*43758.5453123);
+}
+
+float rune_line(vec2 p, vec2 a, vec2 b) {
+  p -= a; b -= a;
+  float h = clamp(dot(p, b) / dot(b, b), 0., 1.);
+  return length(p - b * h);
+}
+
+float rune(vec2 U, vec2 seed, float highlight) {
+  float d = 1e5;
+  for (int i = 0; i < 4; i++) {
+    vec4 pos = hash4(seed);
+    seed += 1.;
+
+    if (i == 0) pos.y = .0;
+    if (i == 1) pos.x = .999;
+    if (i == 2) pos.x = .0;
+    if (i == 3) pos.y = .999;
+    
+    vec4 snaps = vec4(2, 3, 2, 3);
+    pos = ( floor(pos * snaps) + .5) / snaps;
+
+    if (pos.xy != pos.zw) {
+      d = min(d, rune_line(U, pos.xy, pos.zw + .001));
+    }
+  }
+  return smoothstep(0.1, 0., d) + highlight * smoothstep(0.4, 0., d);
+}
+
+float random_char(vec2 outer_seed_components, vec2 inner_uvs, float highlight) {
+  vec2 seed = vec2(dot(outer_seed_components, vec2(269.5, 183.3)), dot(outer_seed_components, vec2(113.5, 271.9)));
+  return rune(inner_uvs, seed, highlight);
+}
+
+vec4 generate_rain_effect(vec3 ro3, vec3 rd3, float time) {
+  vec4 result = vec4(0.0, 0.0, 0.0, 0.0);
+
+  vec2 ro2 = normalize(ro3.xy);
+  vec2 rd2 = normalize(rd3.xy);
+
+  bool prefer_dx = abs(rd2.x) > abs(rd2.y);
+  float t3_to_t2 = 1.0e9;
+  if (prefer_dx && abs(rd2.x) > 0.0001) t3_to_t2 = rd3.x / rd2.x;
+  else if (!prefer_dx && abs(rd2.y) > 0.0001) t3_to_t2 = rd3.y / rd2.y;
+
+  ivec3 cell_side = ivec3(step(0., rd3));
+  ivec3 cell_shift = ivec3(sign(rd3));
+
+  float t2 = 0.;
+  ivec2 next_cell = ivec2(floor(ro2 / XYCELL_SIZE));
+
+  for (int i = 0; i < ITERATIONS; i++) {
+    ivec2 cell = next_cell;
+    float t2s = t2;
+
+    vec2 side_val = vec2(next_cell + cell_side.xy) * XYCELL_SIZE;
+    vec2 t2_side_delta = side_val - ro2;
+    vec2 t2_side = vec2(1.0e9, 1.0e9);
+
+    if (abs(rd2.x) > 0.0001) t2_side.x = t2_side_delta.x / rd2.x;
+    if (abs(rd2.y) > 0.0001) t2_side.y = t2_side_delta.y / rd2.y;
+
+    if (t2_side.x < t2_side.y) {
+      t2 = t2_side.x;
+      next_cell.x += cell_shift.x;
+    } else {
+      t2 = t2_side.y;
+      next_cell.y += cell_shift.y;
+    }
+    if (t2 > 1.0e8 || t2 < t2s) break;
+
+    vec2 cell_in_block = fract(vec2(cell) / float(BLOCK_SIZE));
+    float gap_threshold = float(BLOCK_GAP) / float(BLOCK_SIZE);
+    if (BLOCK_GAP > 0 && (cell_in_block.x < gap_threshold || cell_in_block.y < gap_threshold || 
+        (cell_in_block.x < (gap_threshold + 0.1) && cell_in_block.y < (gap_threshold + 0.1)))) {
+      continue;
+    }
+
+    float t3s = t2s / t3_to_t2;
+    if (abs(t3_to_t2) < 0.0001) t3s = 0.0;
+
+    float pos_z = ro3.z + rd3.z * t3s;
+    float xycell_hash = hash(vec2(cell));
+    float current_z_shift = xycell_hash * 11. + time * SPEED * (0.5 + xycell_hash * 1.0 + xycell_hash * xycell_hash * 1.0 + pow(xycell_hash, 16.) * 3.0);
+    float char_z_offset = floor(current_z_shift / STRIP_CHAR_HEIGHT) * STRIP_CHAR_HEIGHT;
+    
+    int zcell_idx = int(floor((pos_z - char_z_offset) / ZCELL_SIZE));
+
+    for (int j = 0; j < 2; j++) {
+      vec4 strip_hash = hash4(vec3(ivec3(cell, zcell_idx)));
+      vec4 strip_hash2 = fract(strip_hash * vec4(127.1, 311.7, 271.9, 124.6));
+
+      float num_chars_in_strip = strip_hash.w * (STRIP_CHARS_MAX - STRIP_CHARS_MIN) + STRIP_CHARS_MIN;
+      float strip_total_length = num_chars_in_strip * STRIP_CHAR_HEIGHT;
+      float strip_radius = STRIP_CHAR_WIDTH / 2.;
+      float strip_base_z = (float(zcell_idx) * ZCELL_SIZE + char_z_offset) + strip_hash.z * (ZCELL_SIZE - strip_total_length);
+      vec2 strip_xy_center = vec2(cell) * XYCELL_SIZE + strip_radius + strip_hash.xy * (XYCELL_SIZE - strip_radius * 2.);
+
+      vec2 s_to_strip = strip_xy_center - ro2;
+      float t_min_dist_to_strip = dot(s_to_strip, rd2);
+
+      if (t_min_dist_to_strip >= t2s && t_min_dist_to_strip <= t2) {
+        float u_coord_in_strip = s_to_strip.x * rd2.y - s_to_strip.y * rd2.x;
+
+        if (abs(u_coord_in_strip) < strip_radius) {
+          float u_normalized = (u_coord_in_strip / strip_radius + 1.) / 2.;
+          
+          float z_at_intersection = ro3.z + rd3.z * (t_min_dist_to_strip / t3_to_t2);
+          if (abs(t3_to_t2) < 0.0001) z_at_intersection = ro3.z;
+
+          float v_coord_in_strip = (z_at_intersection - strip_base_z) / strip_total_length;
+          if (abs(strip_total_length) < 0.0001) v_coord_in_strip = 0.0;
+
+          if (v_coord_in_strip >= 0.0 && v_coord_in_strip < 1.0) {
+            float char_idx_in_strip = floor(v_coord_in_strip * num_chars_in_strip);
+            float char_uv_v_fract = fract(v_coord_in_strip * num_chars_in_strip);
+            
+            vec2 char_instance_hash = hash2(vec2(char_idx_in_strip + floor(current_z_shift / STRIP_CHAR_HEIGHT), strip_hash2.x));
+
+            if (char_instance_hash.x >= 0.1 || char_idx_in_strip == 0.) {
+              float char_time_factor = floor(char_idx_in_strip == 0. ? time * SPEED * 5.0 :
+                                   time * SPEED * (1.0 * strip_hash2.z +
+                                   strip_hash2.w * strip_hash2.w * 4.0 * pow(char_instance_hash.y, 4.)));
+              
+              float char_alpha = random_char(vec2(char_instance_hash.x, char_time_factor), vec2(u_normalized, char_uv_v_fract), max(1., 3. - char_idx_in_strip / 2.) * 0.2);
+              char_alpha *= clamp((num_chars_in_strip - 0.5 - char_idx_in_strip) / 2., 0., 1.);
+              char_alpha *= RUNE_MAX_ALPHA;
+
+              if (char_alpha > 0.) {
+                float attenuation = 1. + pow(0.06 * (t_min_dist_to_strip / t3_to_t2), 2.);
+                if (abs(t3_to_t2) < 0.0001) attenuation = 1.0;
+
+                vec3 rune_color = (char_idx_in_strip == 0. ? vec3(0.67, 1.0, 0.82) : vec3(0.25, 0.80, 0.40)) / attenuation;
+                
+                float prev_alpha = result.a;
+                result.a = prev_alpha + (1. - prev_alpha) * char_alpha;
+                if (result.a > 0.0001) {
+                  result.xyz = (result.xyz * prev_alpha + rune_color * (1. - prev_alpha) * char_alpha) / result.a;
+                } else if (char_alpha > 0.0) {
+                    result.xyz = rune_color;
+                }
+
+                if (result.a > 0.98) return result;
+              }
+            }
+          }
+        }
+      }
+      zcell_idx += cell_shift.z;
+    }
+  }
+  return result;
+}
+
+void mainImage(out vec4 fragColor, vec2 fragCoord) {
+  if (STRIP_CHAR_WIDTH > XYCELL_SIZE || STRIP_CHAR_HEIGHT * STRIP_CHARS_MAX > ZCELL_SIZE) {
+    fragColor = vec4(1.0, 0.0, 0.0, 1.0);
+    return;
+  }
+
+  vec2 screen_uv = fragCoord.xy / iResolution.xy;
+  float current_time = iTime;
+
+  vec2 view_uv = (fragCoord.xy * 2.0 - iResolution.xy) / iResolution.y;
+  
+  float level1_size = float(BLOCK_SIZE) * XYCELL_SIZE;
+  float gap_offset = float(BLOCK_GAP) * XYCELL_SIZE / 2.0;
+
+  vec3 ro = vec3(gap_offset, gap_offset, 0.0);
+  vec3 rd = vec3(view_uv.x, 2.0, view_uv.y);
+  
+  vec2 p_offset = vec2(0.0, 0.0); 
+  ro.xy += level1_size * p_offset;
+
+  ro += rd * 0.2;
+  rd = normalize(rd);
+
+  vec4 rain_effect = generate_rain_effect(ro, rd, current_time);
+
+  vec4 terminalColor = texture(iChannel0, screen_uv);
+
+  float showRainFactor = step(length(terminalColor.rgb), BLACK_BLEND_THRESHOLD);
+
+  vec3 outputColor = mix(terminalColor.rgb, rain_effect.rgb, rain_effect.a * showRainFactor);
+
+  fragColor = vec4(outputColor, terminalColor.a);
+}
+
