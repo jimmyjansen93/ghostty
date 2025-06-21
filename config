@@ -7,6 +7,8 @@ macos-titlebar-style = native
 window-width = 999999
 window-height = 999999
 
+macos-option-as-alt = true
+
 auto-update = download
 auto-update-channel = tip
 
