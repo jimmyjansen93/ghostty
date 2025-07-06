@@ -6,11 +6,14 @@ mouse-hide-while-typing = true
 macos-titlebar-style = native
 window-width = 999999
 window-height = 999999
+confirm-close-surface = false
 
 macos-option-as-alt = true
+macos-auto-secure-input = true
+macos-secure-input-indication = true
 
 auto-update = download
-auto-update-channel = tip
+auto-update-channel = stable
 
 quick-terminal-position = top
 quick-terminal-screen = main
